@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width,initial-scale=1">
+   <title>Quiniela Mundial 2026</title>
+   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+   <style>
+      body {
+         font-family: Arial, sans-serif;
+         background: #0f5f2f;
+         color: #fff;
+         margin: 0
+      }
+
+      header {
+         background: #0a3f1f;
+         padding: 20px;
+         text-align: center
+      }
+
+      .container {
+         max-width: 1100px;
+         margin: auto;
+         padding: 20px
+      }
+
+      .card {
+         background: #ffffff15;
+         padding: 15px;
+         border-radius: 12px;
+         margin: 10px 0
+      }
+
+      input,
+      select,
+      button {
+         padding: 8px;
+         border-radius: 8px;
+         border: none;
+         margin: 4px
+      }
+
+      button {
+         cursor: pointer;
+         background: #ffd700
+      }
+
+      button:disabled {
+         cursor: not-allowed;
+         opacity: .65
+      }
+
+      table {
+         width: 100%;
+         border-collapse: collapse;
+         background: #fff;
+         color: #000
+      }
+
+      th,
+      td {
+         padding: 8px;
+         border: 1px solid #ccc
+      }
+
+      h2 {
+         color: #ffd700
+      }
+
+      .message {
+         background: #00000035;
+         border-radius: 8px;
+         padding: 10px;
+         margin: 10px 0
+      }
+
+      .error {
+         background: #7a1f1f;
+      }
+
+      .success {
+         background: #145c2a;
+      }
+
+      .player-box {
+         display: flex;
+         gap: 8px;
+         flex-wrap: wrap;
+         align-items: center
+      }
+
+      .match-list {
+         display: grid;
+         gap: 8px
+      }
+
+      .match-row {
+         display: grid;
+         grid-template-columns: 70px 1fr auto auto;
+         gap: 10px;
+         align-items: center;
+         background: #ffffff18;
+         border-radius: 8px;
+         padding: 10px
+      }
+
+      .match-number {
+         color: #ffd700;
+         font-weight: bold
+      }
+
+      .match-teams {
+         font-weight: bold
+      }
+
+      .match-date {
+         color: #ffffffcc;
+         font-size: 13px
+      }
+
+      .score-inputs {
+         white-space: nowrap
+      }
+
+      .score-inputs input {
+         width: 48px
+      }
+
+      .admin-results {
+         display: grid;
+         gap: 8px;
+         margin-top: 12px
+      }
+
+      .admin-row {
+         display: grid;
+         grid-template-columns: 1fr auto;
+         gap: 8px;
+         align-items: center;
+         background: #00000022;
+         border-radius: 8px;
+         padding: 8px
+      }
+
+      @media (max-width: 760px) {
+         .match-row,
+         .admin-row {
+            grid-template-columns: 1fr
+         }
+      }
+   </style>
+</head>
+
+<body>
+   <header>
+      <h1>⚽ Quiniela Mundial 2026</h1>
+   </header>
+   <div class="container">
+
+      <div class="card">
+         <h2>Datos del jugador</h2>
+         <div class="player-box">
+            <input id="playerName" placeholder="Tu nombre">
+            <button id="saveButton" onclick="savePredictions()">Enviar pronósticos</button>
+         </div>
+         <div id="saveStatus"></div>
+      </div>
+
+      <div class="card">
+         <h2>Pronósticos</h2>
+         <div id="matches"></div>
+      </div>
+
+      <div class="card">
+         <h2>Tabla de posiciones</h2>
+         <table>
+            <thead>
+               <tr>
+                  <th>#</th>
+                  <th>Jugador</th>
+                  <th>Pronósticos</th>
+                  <th>Puntos</th>
+               </tr>
+            </thead>
+            <tbody id="leaderboard"></tbody>
+         </table>
+      </div>
+
+      <div class="card">
+         <h2>Administrador</h2>
+         <div class="player-box">
+            <input type="password" id="adminPass" placeholder="Contraseña">
+            <button onclick="showAdmin()">Entrar</button>
+         </div>
+         <div id="adminPanel" style="display:none"></div>
+      </div>
+   </div>
+
+   <script>
+      const SUPABASE_URL = "https://kbeoiiwfrrzdnrwvczdb.supabase.co";
+      const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiZW9paXdmcnJ6ZG5yd3ZjemRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA4NDQ5MDQsImV4cCI6MjA5NjQyMDkwNH0.IQrnvjtbqrtnLi8Yf3OJRp5itdj6ypfrAVu8LxFnCrU";
+      const API_FOOTBALL_BASE_URL = "https://v3.football.api-sports.io";
+      const API_FOOTBALL_LEAGUE = 1;
+      const API_FOOTBALL_SEASON = 2026;
+      const ADMIN_PASSWORD_HASH = "6051fc84a7a0d74c225fb18a496b09952da5642e60723ecae543298edd7d82d6";
+
+      let matches = [];
+      let db = null;
+      let apiFootballKey = localStorage.getItem("apiFootballKey") || "";
+      let matchesMessage = "";
+      const FALLBACK_MATCHES = [
+         ["1", "Mexico", "South Africa", "2026-06-11T19:00:00Z"],
+         ["2", "South Korea", "Czech Republic", "2026-06-12T02:00:00Z"],
+         ["3", "Canada", "Bosnia & Herzegovina", "2026-06-12T19:00:00Z"],
+         ["4", "USA", "Paraguay", "2026-06-13T01:00:00Z"],
+         ["5", "Qatar", "Switzerland", "2026-06-13T19:00:00Z"],
+         ["6", "Brazil", "Morocco", "2026-06-13T22:00:00Z"],
+         ["7", "Haiti", "Scotland", "2026-06-14T01:00:00Z"],
+         ["8", "Australia", "Turkey", "2026-06-14T04:00:00Z"],
+         ["9", "Germany", "Curacao", "2026-06-14T17:00:00Z"],
+         ["10", "Netherlands", "Japan", "2026-06-14T20:00:00Z"],
+         ["11", "Ivory Coast", "Ecuador", "2026-06-14T23:00:00Z"],
+         ["12", "Sweden", "Tunisia", "2026-06-15T02:00:00Z"],
+         ["13", "Spain", "Cape Verde", "2026-06-15T16:00:00Z"],
+         ["14", "Belgium", "Egypt", "2026-06-15T19:00:00Z"],
+         ["15", "Saudi Arabia", "Uruguay", "2026-06-15T22:00:00Z"],
+         ["16", "Iran", "New Zealand", "2026-06-16T01:00:00Z"],
+         ["17", "France", "Senegal", "2026-06-16T19:00:00Z"],
+         ["18", "Iraq", "Norway", "2026-06-16T22:00:00Z"],
+         ["19", "Argentina", "Algeria", "2026-06-17T01:00:00Z"],
+         ["20", "Austria", "Jordan", "2026-06-17T04:00:00Z"],
+         ["21", "Portugal", "DR Congo", "2026-06-17T17:00:00Z"],
+         ["22", "England", "Croatia", "2026-06-17T20:00:00Z"],
+         ["23", "Ghana", "Panama", "2026-06-17T23:00:00Z"],
+         ["24", "Uzbekistan", "Colombia", "2026-06-18T02:00:00Z"],
+         ["25", "Czech Republic", "South Africa", "2026-06-18T16:00:00Z"],
+         ["26", "Switzerland", "Bosnia & Herzegovina", "2026-06-18T19:00:00Z"],
+         ["27", "Canada", "Qatar", "2026-06-18T22:00:00Z"],
+         ["28", "Mexico", "South Korea", "2026-06-19T01:00:00Z"],
+         ["29", "USA", "Australia", "2026-06-19T19:00:00Z"],
+         ["30", "Scotland", "Morocco", "2026-06-19T22:00:00Z"],
+         ["31", "Brazil", "Haiti", "2026-06-20T00:30:00Z"],
+         ["32", "Turkey", "Paraguay", "2026-06-20T03:00:00Z"],
+         ["33", "Netherlands", "Sweden", "2026-06-20T17:00:00Z"],
+         ["34", "Germany", "Ivory Coast", "2026-06-20T20:00:00Z"],
+         ["35", "Ecuador", "Curacao", "2026-06-21T00:00:00Z"],
+         ["36", "Tunisia", "Japan", "2026-06-21T04:00:00Z"],
+         ["37", "Spain", "Saudi Arabia", "2026-06-21T16:00:00Z"],
+         ["38", "Belgium", "Iran", "2026-06-21T19:00:00Z"],
+         ["39", "Uruguay", "Cape Verde", "2026-06-21T22:00:00Z"],
+         ["40", "New Zealand", "Egypt", "2026-06-22T01:00:00Z"],
+         ["41", "Argentina", "Austria", "2026-06-22T17:00:00Z"],
+         ["42", "France", "Iraq", "2026-06-22T21:00:00Z"],
+         ["43", "Norway", "Senegal", "2026-06-23T00:00:00Z"],
+         ["44", "Jordan", "Algeria", "2026-06-23T03:00:00Z"],
+         ["45", "Portugal", "Uzbekistan", "2026-06-23T17:00:00Z"],
+         ["46", "England", "Ghana", "2026-06-23T20:00:00Z"],
+         ["47", "Panama", "Croatia", "2026-06-23T23:00:00Z"],
+         ["48", "Colombia", "DR Congo", "2026-06-24T02:00:00Z"],
+         ["49", "Switzerland", "Canada", "2026-06-24T19:00:00Z"],
+         ["50", "Bosnia & Herzegovina", "Qatar", "2026-06-24T19:00:00Z"],
+         ["51", "Scotland", "Brazil", "2026-06-24T22:00:00Z"],
+         ["52", "Morocco", "Haiti", "2026-06-24T22:00:00Z"],
+         ["53", "Czech Republic", "Mexico", "2026-06-25T01:00:00Z"],
+         ["54", "South Africa", "South Korea", "2026-06-25T01:00:00Z"],
+         ["55", "Curacao", "Ivory Coast", "2026-06-25T20:00:00Z"],
+         ["56", "Ecuador", "Germany", "2026-06-25T20:00:00Z"],
+         ["57", "Japan", "Sweden", "2026-06-25T23:00:00Z"],
+         ["58", "Tunisia", "Netherlands", "2026-06-25T23:00:00Z"],
+         ["59", "Turkey", "USA", "2026-06-26T02:00:00Z"],
+         ["60", "Paraguay", "Australia", "2026-06-26T02:00:00Z"],
+         ["61", "Norway", "France", "2026-06-26T19:00:00Z"],
+         ["62", "Senegal", "Iraq", "2026-06-26T19:00:00Z"],
+         ["63", "Cape Verde", "Saudi Arabia", "2026-06-27T00:00:00Z"],
+         ["64", "Uruguay", "Spain", "2026-06-27T00:00:00Z"],
+         ["65", "Egypt", "Iran", "2026-06-27T03:00:00Z"],
+         ["66", "New Zealand", "Belgium", "2026-06-27T03:00:00Z"],
+         ["67", "Panama", "England", "2026-06-27T21:00:00Z"],
+         ["68", "Croatia", "Ghana", "2026-06-27T21:00:00Z"],
+         ["69", "Colombia", "Portugal", "2026-06-27T23:30:00Z"],
+         ["70", "DR Congo", "Uzbekistan", "2026-06-27T23:30:00Z"],
+         ["71", "Algeria", "Austria", "2026-06-28T02:00:00Z"],
+         ["72", "Jordan", "Argentina", "2026-06-28T02:00:00Z"],
+         ["73", "2A", "2B", "2026-06-28T19:00:00Z"],
+         ["74", "1C", "2F", "2026-06-29T17:00:00Z"],
+         ["75", "1E", "3A/B/C/D/F", "2026-06-29T20:30:00Z"],
+         ["76", "1F", "2C", "2026-06-30T01:00:00Z"],
+         ["77", "2E", "2I", "2026-06-30T17:00:00Z"],
+         ["78", "1I", "3C/D/F/G/H", "2026-06-30T21:00:00Z"],
+         ["79", "1A", "3C/E/F/H/I", "2026-07-01T01:00:00Z"],
+         ["80", "1L", "3E/H/I/J/K", "2026-07-01T16:00:00Z"],
+         ["81", "1G", "3A/E/H/I/J", "2026-07-01T20:00:00Z"],
+         ["82", "1D", "3B/E/F/I/J", "2026-07-02T00:00:00Z"],
+         ["83", "1H", "2J", "2026-07-02T19:00:00Z"],
+         ["84", "2K", "2L", "2026-07-02T23:00:00Z"],
+         ["85", "1B", "3E/F/G/I/J", "2026-07-03T03:00:00Z"],
+         ["86", "2D", "2G", "2026-07-03T18:00:00Z"],
+         ["87", "1J", "2H", "2026-07-03T22:00:00Z"],
+         ["88", "1K", "3D/E/I/J/L", "2026-07-04T01:30:00Z"],
+         ["89", "W73", "W75", "2026-07-04T17:00:00Z"],
+         ["90", "W74", "W77", "2026-07-04T21:00:00Z"],
+         ["91", "W76", "W78", "2026-07-05T20:00:00Z"],
+         ["92", "W79", "W80", "2026-07-06T00:00:00Z"],
+         ["93", "W83", "W84", "2026-07-06T19:00:00Z"],
+         ["94", "W81", "W82", "2026-07-07T00:00:00Z"],
+         ["95", "W86", "W88", "2026-07-07T16:00:00Z"],
+         ["96", "W85", "W87", "2026-07-07T20:00:00Z"],
+         ["97", "W89", "W90", "2026-07-09T20:00:00Z"],
+         ["98", "W93", "W94", "2026-07-10T19:00:00Z"],
+         ["99", "W91", "W92", "2026-07-11T21:00:00Z"],
+         ["100", "W95", "W96", "2026-07-12T01:00:00Z"],
+         ["101", "W97", "W98", "2026-07-14T19:00:00Z"],
+         ["102", "W99", "W100", "2026-07-15T19:00:00Z"],
+         ["103", "L101", "L102", "2026-07-18T21:00:00Z"],
+         ["104", "W101", "W102", "2026-07-19T19:00:00Z"]
+      ].map(([fixture_id, home_team, away_team, match_date]) => ({
+         fixture_id,
+         home_team,
+         away_team,
+         home_logo: "",
+         away_logo: "",
+         match_date
+      }));
+      let usingFallbackMatches = false;
+
+      function showMessage(elementId, text, isError = false) {
+         const element = document.getElementById(elementId);
+         if (!element) return;
+         element.innerHTML = `<div class="message ${isError ? "error" : ""}">${escapeHtml(text)}</div>`;
+      }
+
+      function showSaveStatus(text, type = "") {
+         const element = document.getElementById("saveStatus");
+         if (!element) return;
+         element.innerHTML = text
+            ? `<div class="message ${type}">${escapeHtml(text)}</div>`
+            : "";
+      }
+
+      function escapeHtml(value) {
+         return String(value ?? "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
+      }
+
+      async function sha256(value) {
+         const bytes = new TextEncoder().encode(value);
+         const hashBuffer = await crypto.subtle.digest("SHA-256", bytes);
+         return Array.from(new Uint8Array(hashBuffer))
+            .map(byte => byte.toString(16).padStart(2, "0"))
+            .join("");
+      }
+
+      function initSupabase() {
+         if (!window.supabase || !window.supabase.createClient) {
+            showMessage(
+               "matches",
+               "No se pudo cargar Supabase. Revisa tu conexion a internet o el CDN de Supabase.",
+               true
+            );
+            return false;
+         }
+
+         db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+         return true;
+      }
+
+      function requireDatabase() {
+         if (db) return true;
+         alert("La conexion con Supabase no esta lista. Recarga la pagina y revisa la conexion.");
+         return false;
+      }
+
+      function getApiFootballKey() {
+         return apiFootballKey.trim();
+      }
+
+      function normalizeApiFootballFixture(item) {
+         return {
+            fixture_id: String(item.fixture.id),
+            home_team: item.teams.home.name,
+            away_team: item.teams.away.name,
+            home_logo: item.teams.home.logo || "",
+            away_logo: item.teams.away.logo || "",
+            match_date: item.fixture.date
+         };
+      }
+
+      async function loadApiFootballMatches() {
+         const key = getApiFootballKey();
+         if (!key) {
+            return { matches: [], message: "API-Football no tiene clave configurada." };
+         }
+
+         const params = new URLSearchParams({
+            league: String(API_FOOTBALL_LEAGUE),
+            season: String(API_FOOTBALL_SEASON)
+         });
+
+         const response = await fetch(`${API_FOOTBALL_BASE_URL}/fixtures?${params}`, {
+            headers: {
+               "x-apisports-key": key
+            }
+         });
+
+         if (!response.ok) {
+            throw new Error(`API-Football respondio ${response.status}`);
+         }
+
+         const payload = await response.json();
+
+         if (payload.errors && Object.keys(payload.errors).length) {
+            throw new Error(JSON.stringify(payload.errors));
+         }
+
+         const fixtures = (payload.response || [])
+            .map(normalizeApiFootballFixture)
+            .sort((a, b) => new Date(a.match_date) - new Date(b.match_date));
+
+         return {
+            matches: fixtures,
+            message: `Partidos cargados desde API-Football: ${fixtures.length}.`
+         };
+      }
+
+      function renderMatches() {
+
+         const container = document.getElementById("matches");
+         let html = usingFallbackMatches
+            ? `<div class="message">Supabase no tiene partidos cargados. Mostrando calendario local de respaldo.</div>`
+            : matchesMessage
+               ? `<div class="message">${matchesMessage}</div>`
+               : "";
+
+         if (!matches.length) {
+            showMessage("matches", "No hay partidos cargados todavia.");
+            return;
+         }
+
+         html += `<div class="match-list">`;
+
+         matches.forEach(match => {
+            const fixtureId = escapeHtml(match.fixture_id);
+            const homeTeam = escapeHtml(match.home_team);
+            const awayTeam = escapeHtml(match.away_team);
+            const matchDate = new Date(match.match_date).toLocaleDateString([], {
+               day: "2-digit",
+               month: "short",
+               hour: "2-digit",
+               minute: "2-digit"
+            });
+
+            html += `
+      <div class="match-row">
+        <div class="match-number">#${fixtureId}</div>
+        <div>
+          <div class="match-teams">${homeTeam} vs ${awayTeam}</div>
+          <div class="match-date">${escapeHtml(matchDate)}</div>
+        </div>
+        <select id="winner_${fixtureId}">
+          <option value="">Elegir ganador</option>
+          <option value="${homeTeam}">
+            ${homeTeam}
+          </option>
+          <option value="Empate">
+            Empate
+          </option>
+          <option value="${awayTeam}">
+            ${awayTeam}
+          </option>
+        </select>
+        <div class="score-inputs">
+          <input type="number" min="0" id="hs_${fixtureId}" placeholder="0">
+          -
+          <input type="number" min="0" id="as_${fixtureId}" placeholder="0">
+        </div>
+      </div>
+    `;
+         });
+
+         html += `</div>`;
+         container.innerHTML = html;
+      }
+
+      function teamLogo(logoUrl, teamName) {
+         if (logoUrl) {
+            return `<img src="${escapeHtml(logoUrl)}" width="50" alt="${escapeHtml(teamName)}">`;
+         }
+
+         return `
+            <div style="width:50px;height:50px;border-radius:50%;background:#ffd700;color:#0a3f1f;display:flex;align-items:center;justify-content:center;font-weight:bold;margin:auto">
+               ${escapeHtml(teamName.slice(0, 3).toUpperCase())}
+            </div>
+         `;
+      }
+
+      async function loadMatches() {
+         showMessage("matches", "Cargando partidos...");
+
+         try {
+            const apiResult = await loadApiFootballMatches();
+
+            if (apiResult.matches.length) {
+               matches = apiResult.matches;
+               usingFallbackMatches = false;
+               matchesMessage = apiResult.message;
+               renderMatches();
+               return;
+            }
+
+            if (!db) {
+               matches = FALLBACK_MATCHES;
+               usingFallbackMatches = true;
+               renderMatches();
+               return;
+            }
+
+            const { data, error } = await db
+               .from("matches")
+               .select("*")
+               .order("match_date", { ascending: true });
+
+            if (error) {
+               console.error(error);
+               matches = FALLBACK_MATCHES;
+               usingFallbackMatches = true;
+               renderMatches();
+               return;
+            }
+
+            if (data && data.length) {
+               matches = data;
+               usingFallbackMatches = false;
+               matchesMessage = "Partidos cargados desde Supabase.";
+            } else {
+               matches = FALLBACK_MATCHES;
+               usingFallbackMatches = true;
+               matchesMessage = "";
+            }
+
+            renderMatches();
+         } catch (error) {
+            console.error(error);
+
+            if (db) {
+               try {
+                  const { data } = await db
+                     .from("matches")
+                     .select("*")
+                     .order("match_date", { ascending: true });
+
+                  if (data && data.length) {
+                     matches = data;
+                     usingFallbackMatches = false;
+                     matchesMessage = "API-Football fallo. Partidos cargados desde Supabase.";
+                     renderMatches();
+                     return;
+                  }
+               } catch (supabaseError) {
+                  console.error(supabaseError);
+               }
+            }
+
+            matches = FALLBACK_MATCHES;
+            usingFallbackMatches = true;
+            matchesMessage = "";
+            renderMatches();
+         }
+      }
+
+      async function savePredictions() {
+         if (!requireDatabase()) return;
+
+         const player = document.getElementById("playerName").value.trim();
+         if (!player) { alert("Introduce tu nombre"); return; }
+         if (!matches.length) { alert("No hay partidos para pronosticar"); return; }
+
+         const saveButton = document.getElementById("saveButton");
+         if (saveButton) saveButton.disabled = true;
+         showSaveStatus("Guardando pronosticos...");
+
+         const rows = [];
+
+         for (const m of matches) {
+            const homeScore = parseScore(document.getElementById(`hs_${m.fixture_id}`).value);
+            const awayScore = parseScore(document.getElementById(`as_${m.fixture_id}`).value);
+            const predictedWinner = document.getElementById(`winner_${m.fixture_id}`).value;
+
+            if ((homeScore === null) !== (awayScore === null)) {
+               alert(`Completa los dos goles o deja ambos vacios: ${m.home_team} vs ${m.away_team}`);
+               if (saveButton) saveButton.disabled = false;
+               showSaveStatus("");
+               return;
+            }
+
+            if (!predictedWinner && homeScore === null && awayScore === null) continue;
+
+            rows.push({
+               player_name: player,
+               match_id: String(m.fixture_id),
+               prediction_type: "mixed",
+               predicted_winner: predictedWinner,
+               home_score: homeScore,
+               away_score: awayScore
+            });
+         }
+
+         if (!rows.length) {
+            alert("Rellena al menos un pronostico antes de enviar.");
+            if (saveButton) saveButton.disabled = false;
+            showSaveStatus("");
+            return;
+         }
+
+         let { error } = await db
+            .from("predictions")
+            .upsert(rows, { onConflict: "player_name,match_id" });
+
+         if (error) {
+            console.warn("No se pudo hacer upsert. Reintentando con borrado previo.", error);
+
+            const deleteResult = await db
+               .from("predictions")
+               .delete()
+               .eq("player_name", player)
+               .in("match_id", rows.map(row => row.match_id));
+
+            if (deleteResult.error) {
+               console.error(deleteResult.error);
+               alert(`Error actualizando pronosticos: ${deleteResult.error.message}`);
+               if (saveButton) saveButton.disabled = false;
+               showSaveStatus("No se pudieron guardar los pronosticos.", "error");
+               return;
+            }
+
+            const insertResult = await db.from("predictions").insert(rows);
+            error = insertResult.error;
+         }
+
+         if (error) {
+            console.error(error);
+            alert(`Error guardando pronosticos: ${error.message}`);
+            if (saveButton) saveButton.disabled = false;
+            showSaveStatus("No se pudieron guardar los pronosticos.", "error");
+            return;
+         }
+
+         showSaveStatus("Pronosticos guardados. Puedes corregirlos y volver a enviarlos.", "success");
+         if (saveButton) saveButton.disabled = false;
+         loadLeaderboard();
+      }
+
+      async function showAdmin() {
+         const pass = document.getElementById("adminPass").value;
+         const panel = document.getElementById("adminPanel");
+         const hash = await sha256(pass);
+
+         if (hash !== ADMIN_PASSWORD_HASH) {
+            alert("Contraseña incorrecta");
+            return;
+         }
+
+         panel.style.display = "block";
+
+         if (!matches.length) {
+            panel.innerHTML = `<div class="message error">No hay partidos cargados todavia.</div>`;
+            return;
+         }
+
+         panel.innerHTML = `
+            <div class="message">
+               <div class="player-box">
+                  <input type="password" id="apiFootballKey" placeholder="API-Football key" value="${escapeHtml(apiFootballKey)}">
+                  <button onclick="saveApiFootballKey()">Guardar API key</button>
+                  <button onclick="loadMatches()">Recargar partidos</button>
+                  <button onclick="seedMatches()">Cargar calendario en Supabase</button>
+               </div>
+               <span id="seedStatus"></span>
+            </div>
+            <div class="admin-results">
+               ${matches.map(m => {
+                  const fixtureId = escapeHtml(m.fixture_id);
+                  const homeTeam = escapeHtml(m.home_team);
+                  const awayTeam = escapeHtml(m.away_team);
+
+                  return `
+                     <div class="admin-row">
+                        <div><strong>#${fixtureId}</strong> ${homeTeam} vs ${awayTeam}</div>
+                        <div class="score-inputs">
+                           <input type="number" id="r_h_${fixtureId}" min="0" placeholder="0">
+                           -
+                           <input type="number" id="r_a_${fixtureId}" min="0" placeholder="0">
+                           <button onclick="saveResult('${fixtureId}')">Guardar</button>
+                        </div>
+                     </div>
+                  `;
+               }).join("")}
+            </div>
+         `;
+      }
+
+      async function seedMatches() {
+         if (!requireDatabase()) return;
+
+         const status = document.getElementById("seedStatus");
+         if (status) status.textContent = " Cargando...";
+
+         const rows = (matches.length ? matches : FALLBACK_MATCHES).map(match => ({
+            fixture_id: String(match.fixture_id),
+            home_team: match.home_team,
+            away_team: match.away_team,
+            home_logo: match.home_logo,
+            away_logo: match.away_logo,
+            match_date: match.match_date
+         }));
+
+         const { error } = await db
+            .from("matches")
+            .upsert(rows, { onConflict: "fixture_id" });
+
+         if (error) {
+            console.error(error);
+            if (status) status.textContent = ` Error: ${error.message}`;
+            alert(`No se pudo cargar el calendario: ${error.message}`);
+            return;
+         }
+
+         usingFallbackMatches = false;
+         matches = rows;
+         renderMatches();
+         if (status) status.textContent = " Calendario cargado.";
+         alert("Calendario cargado en Supabase");
+      }
+
+      function saveApiFootballKey() {
+         const input = document.getElementById("apiFootballKey");
+         apiFootballKey = input ? input.value.trim() : "";
+
+         if (!apiFootballKey) {
+            localStorage.removeItem("apiFootballKey");
+            alert("Clave de API-Football borrada");
+            return;
+         }
+
+         localStorage.setItem("apiFootballKey", apiFootballKey);
+         alert("Clave de API-Football guardada");
+         loadMatches();
+      }
+
+      async function saveResult(id) {
+         if (!requireDatabase()) return;
+
+         const hs = parseScore(document.getElementById(`r_h_${id}`).value);
+         const as = parseScore(document.getElementById(`r_a_${id}`).value);
+
+         if (hs === null || as === null) {
+            alert("Introduce el resultado completo");
+            return;
+         }
+
+         const { error } = await db.from("results").upsert({
+            match_id: String(id),
+            home_score: hs,
+            away_score: as
+         });
+
+         if (error) {
+            console.error(error);
+            alert(`Error guardando resultado: ${error.message}`);
+            return;
+         }
+
+         await calculateScores();
+         alert("Resultado guardado");
+      }
+
+      function parseScore(value) {
+         if (value === "") return null;
+         const score = Number(value);
+         return Number.isInteger(score) && score >= 0 ? score : null;
+      }
+
+      function winner(h, a) {
+         if (h > a) return "home";
+         if (a > h) return "away";
+         return "draw";
+      }
+
+      async function calculateScores() {
+         if (!db) return;
+
+         const { data: preds, error: predsError } = await db
+            .from("predictions")
+            .select("*");
+         const { data: results, error: resultsError } = await db.from("results").select("*");
+
+         if (predsError || resultsError) {
+            console.error(predsError || resultsError);
+            renderBoard({});
+            return;
+         }
+
+         const board = {};
+         const latestPredictions = {};
+
+         (preds || []).forEach(p => {
+            latestPredictions[`${p.player_name}__${p.match_id}`] = p;
+         });
+
+         Object.values(latestPredictions).forEach(p => {
+            if (!board[p.player_name]) {
+               board[p.player_name] = {
+                  points: 0,
+                  predictions: 0
+               };
+            }
+
+            board[p.player_name].predictions += 1;
+
+            const r = (results || []).find(x => String(x.match_id) === String(p.match_id));
+            if (!r) return;
+
+            if (p.home_score !== null && p.away_score !== null) {
+               if (p.home_score === r.home_score && p.away_score === r.away_score) {
+                  board[p.player_name].points += 5;
+                  return;
+               }
+            }
+
+            let pw = p.predicted_winner;
+            let rw = winner(r.home_score, r.away_score);
+            const match = matches.find(
+               m => String(m.fixture_id) === String(p.match_id)
+            );
+
+            if (!match) return;
+
+            let actual =
+               rw === "home"
+                  ? match.home_team
+                  : rw === "away"
+                     ? match.away_team
+                     : "Empate";
+
+            if (pw === actual) board[p.player_name].points += 3;
+         });
+
+         localStorage.setItem("leaderboard_cache", JSON.stringify(board));
+         renderBoard(board);
+      }
+
+      function renderBoard(board) {
+         const tbody = document.getElementById("leaderboard");
+         const arr = Object.entries(board).sort((a, b) => b[1].points - a[1].points);
+         tbody.innerHTML = arr.map((r, i) => `
+            <tr>
+               <td>${i + 1}</td>
+               <td>${escapeHtml(r[0])}</td>
+               <td>${r[1].predictions}</td>
+               <td>${r[1].points}</td>
+            </tr>
+         `).join("");
+      }
+
+      async function loadLeaderboard() {
+         await calculateScores();
+      }
+
+      window.savePredictions = savePredictions;
+      window.showAdmin = showAdmin;
+      window.seedMatches = seedMatches;
+      window.saveApiFootballKey = saveApiFootballKey;
+      window.saveResult = saveResult;
+      window.loadMatches = loadMatches;
+
+      initSupabase();
+
+      loadMatches().then(() => {
+         loadLeaderboard();
+      });
+
+      if (db) {
+         try {
+            db.channel('live')
+               .on('postgres_changes', { event: '*', schema: 'public' }, () => loadLeaderboard())
+               .subscribe();
+         } catch (error) {
+            console.error(error);
+         }
+      }
+   </script>
+</body>
+
+</html>
