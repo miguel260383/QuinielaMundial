@@ -29,17 +29,6 @@ Una aplicación web de quiniela para el Mundial de Fútbol 2026 con clasificaci�
 
 ---
 
-## 📸 Capturas
-
-### Pantalla principal
-
-*Añade aquí una captura de la aplicación*
-
-### Tabla de posiciones
-
-*Añade aquí una captura del ranking*
-
----
 
 ## 🏗️ Arquitectura
 
